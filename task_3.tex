@@ -1,0 +1,207 @@
+\section{Task 3: Recurrent Neural Network}
+
+\begin{questionbox}
+\textbf{Q1.} With RNNs, do you still have to pad your data? If yes, how?
+\end{questionbox}
+
+Yes. RNNs can process variable-length sequences conceptually, but mini-batch training still requires
+rectangular tensors. Therefore, we pad sequences inside each mini-batch. Unlike the FFNN case, padding
+is dynamic: each batch is padded only to the longest sequence in that batch. We also use packed
+sequences, so the recurrent layer ignores padded timesteps.
+
+\begin{questionbox}
+\textbf{Q2.} Do you have to truncate the testing sequences? Justify your answer.
+\end{questionbox}
+
+No. RNNs reuse the same recurrent weights at every timestep, so they are not constrained by a fixed
+input dimensionality. Test sequences longer than the longest training sequence can still be processed.
+The only requirement is that each API call is mapped to a known ID or to the \texttt{<UNK>} token.
+
+\begin{questionbox}
+\textbf{Q3.} Is the RNN padding, if any, more memory efficient with respect to the FFNN's one? Why?
+\end{questionbox}
+
+Yes. The FFNN representation used a global fixed length of 90 for every sample. RNN batching can be
+more memory efficient because padding is batch-local and packed sequences avoid computation on padded
+timesteps. In terms of actual tokens, train sequences contain 1,224,878 API calls compared with
+1,469,250 positions in the FFNN fixed representation, i.e. 83.37\% of the fixed padded size. For the
+test set, the ratio is 95.92\%, because test sequences are longer on average.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccc}
+\hline
+\textbf{Split} & \textbf{Samples} & \textbf{FFNN fixed tokens} & \textbf{Actual RNN tokens} & \textbf{Ratio} \\
+\hline
+Train & 16325 & 1469250 & 1224878 & 0.8337 \\
+Test  & 6505  & 585450  & 561584  & 0.9592 \\
+\hline
+\end{tabular}
+\caption{Token counts for fixed FFNN padding versus actual RNN sequence lengths.}
+\label{tab:task3_padding_memory}
+\end{table}
+
+\begin{questionbox}
+\textbf{Q4.} Start with a simple one-directional RNN. Is your network fast as the FFNN? If not,
+where do you think that time-overhead comes from?
+\end{questionbox}
+
+No. The simple one-directional RNN is slower than the FFNN. The overhead comes from the recurrent
+dependency across timesteps: the hidden state at time $t$ depends on the previous hidden state, so the
+sequence dimension is harder to parallelize than the matrix operations used by a FFNN.
+
+\begin{questionbox}
+\textbf{Q5.} Train and test three variations of networks: simple one-directional RNN,
+bi-directional RNN, and LSTM. Report results and observations.
+\end{questionbox}
+
+We trained three sequence models: a simple one-directional RNN, a bidirectional RNN, and a
+bidirectional LSTM. Hyperparameters were selected with Optuna on a stratified validation split from
+the training set, optimizing macro F1. The search space is reported in
+Table~\ref{tab:task3_optuna_space}.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{llll}
+\hline
+\textbf{Hyperparameter} & \textbf{Search space} & \textbf{Scale/type} & \textbf{Models} \\
+\hline
+\texttt{embedding\_dim} & \{16, 32, 64\} & Categorical & All \\
+\texttt{hidden\_dim} & \{64, 128, 256\} & Categorical & All \\
+\texttt{num\_layers} & \{1, 2\} & Categorical & All \\
+\texttt{dropout} & $[0, 0.5]$ & Uniform & All \\
+\texttt{batch\_size} & \{128, 256\} & Categorical & All \\
+\texttt{lr} & $[10^{-5}, 10^{-3}]$ & Log-uniform & All \\
+\texttt{weight\_decay} & $[10^{-6}, 10^{-2}]$ & Log-uniform & All \\
+\hline
+\end{tabular}
+\caption{Optuna search space for the RNN models.}
+\label{tab:task3_optuna_space}
+\end{table}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lccccccc}
+\hline
+\textbf{Model} & \textbf{Emb.} & \textbf{Hidden} & \textbf{Layers} & \textbf{Dropout} &
+\textbf{LR} & \textbf{Weight decay} & \textbf{Batch} \\
+\hline
+Simple RNN & 64 & 128 & 1 & 0.4077 & 0.000259 & 0.000824 & 128 \\
+BiRNN      & 64 & 128 & 2 & 0.4828 & 0.000414 & 0.000017 & 256 \\
+BiLSTM     & 64 & 128 & 2 & 0.4828 & 0.000414 & 0.000017 & 256 \\
+\hline
+\end{tabular}
+\caption{Best hyperparameters found for the three RNN variants.}
+\label{tab:task3_best_hyperparameters}
+\end{table}
+
+\begin{figure}[h!]
+\centering
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-3/simple_rnn_training_curve.pdf}
+\end{minipage}
+\hfill
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-3/bidirectional_rnn_training_curve.pdf}
+\end{minipage}
+\hfill
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-3/lstm_training_curve.pdf}
+\end{minipage}
+\caption{Validation macro F1 curves for Simple RNN (left), BiRNN (center), and BiLSTM (right).}
+\label{fig:task3_training_curves}
+\end{figure}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lccccc}
+\hline
+\textbf{Model} & \textbf{Accuracy} & \textbf{Balanced acc.} & \textbf{Macro F1} &
+\textbf{F1 Goodware} & \textbf{F1 Malware} \\
+\hline
+Simple RNN & 0.9600 & 0.8032 & 0.7607 & 0.5423 & 0.9791 \\
+BiRNN      & 0.8999 & 0.8135 & 0.6477 & 0.3497 & 0.9458 \\
+BiLSTM     & 0.9545 & 0.8597 & 0.7651 & 0.5542 & 0.9760 \\
+\hline
+\end{tabular}
+\caption{Final test performance of the three RNN variants.}
+\label{tab:task3_test_performance}
+\end{table}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccc}
+\hline
+\textbf{Model/Class} & \textbf{Precision} & \textbf{Recall} & \textbf{F1-score} & \textbf{Support} \\
+\hline
+Simple RNN Goodware (0) & 0.4738 & 0.6337 & 0.5423 & 243 \\
+Simple RNN Malware (1)  & 0.9856 & 0.9727 & 0.9791 & 6262 \\
+BiRNN Goodware (0)      & 0.2309 & 0.7202 & 0.3497 & 243 \\
+BiRNN Malware (1)       & 0.9882 & 0.9069 & 0.9458 & 6262 \\
+BiLSTM Goodware (0)     & 0.4371 & 0.7572 & 0.5542 & 243 \\
+BiLSTM Malware (1)      & 0.9903 & 0.9622 & 0.9760 & 6262 \\
+\hline
+\end{tabular}
+\caption{Per-class classification report for the RNN variants.}
+\label{tab:task3_classification_report}
+\end{table}
+
+\begin{figure}[h!]
+\centering
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-3/simple_rnn_confusion_matrix.pdf}
+\end{minipage}
+\hfill
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-3/bidirectional_rnn_confusion_matrix.pdf}
+\end{minipage}
+\hfill
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-3/lstm_confusion_matrix.pdf}
+\end{minipage}
+\caption{Confusion matrices for Simple RNN (left), BiRNN (center), and BiLSTM (right).}
+\label{fig:task3_confusion_matrices}
+\end{figure}
+
+The best overall model was the bidirectional LSTM, with macro F1 0.7651 and goodware F1 0.5542.
+The simple RNN was close in macro F1, while the bidirectional RNN had higher goodware recall but many
+more false positives, which reduced its accuracy and macro F1.
+
+\begin{questionbox}
+\textbf{Q6.} Is the RNNs training as stable as the FFNN's one?
+\end{questionbox}
+
+No. RNN training was less stable than FFNN training. Validation macro F1 fluctuated across epochs,
+especially for the simple RNN and BiRNN. To improve stability, we used small learning rates, gradient
+clipping, class-weighted loss, validation monitoring, and early stopping.
+
+\begin{questionbox}
+\textbf{Q7.} How does your model's performance compare to the simple frequency baseline, given that
+you now account for the sequence of API calls and use a significantly more complex network?
+\end{questionbox}
+
+The best RNN model, the bidirectional LSTM, slightly outperformed the frequency-based Logistic
+Regression baseline in macro F1 and goodware F1. Logistic Regression obtained macro F1 0.7154 and
+goodware F1 0.4469, while the BiLSTM obtained macro F1 0.7651 and goodware F1 0.5542. This suggests
+that modeling the API order can help the minority class. However, the improvement is moderate given
+the much higher model complexity and training cost.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccc}
+\hline
+\textbf{Model} & \textbf{Accuracy} & \textbf{Balanced acc.} & \textbf{Macro F1} & \textbf{Goodware F1} \\
+\hline
+Logistic Regression baseline & 0.9688 & 0.6654 & 0.7154 & 0.4469 \\
+Best RNN: BiLSTM             & 0.9545 & 0.8597 & 0.7651 & 0.5542 \\
+\hline
+\end{tabular}
+\caption{Comparison between the frequency-based baseline and the best RNN model on the test set.}
+\label{tab:task3_baseline_comparison}
+\end{table}
