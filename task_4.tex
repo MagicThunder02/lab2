@@ -1,0 +1,201 @@
+\section{Task 4: Graph Neural Network}
+
+\begin{questionbox}
+\textbf{Q1.} Do you still have to pad your data? If yes, how?
+\end{questionbox}
+
+No. In the GNN representation, each sample is a graph with its own number of nodes and edges.
+Mini-batches are built as disjoint unions of graphs, so there is no need to pad all samples to the
+same number of API calls, nodes, or edges.
+
+\begin{questionbox}
+\textbf{Q2.} Do you have to truncate the testing sequences? Justify your answer.
+\end{questionbox}
+
+No. GNN layers apply the same message-passing functions to all nodes and edges, independently of the
+graph size. Therefore, test sequences longer than the training ones can be converted into larger
+graphs and processed without truncation, as long as unknown API calls are mapped to \texttt{<UNK>}.
+
+\begin{questionbox}
+\textbf{Q3.} What is the advantage of modeling your problem with a GNN with respect to an RNN in
+this scenario? However, what do you lose?
+\end{questionbox}
+
+A GNN models the transition structure of the API trace directly. Nodes represent API calls and
+directed edges represent consecutive transitions, including loops when they occur. This avoids
+sequential unrolling and can capture local transition patterns more explicitly than an RNN.
+
+However, the graph is a static, unweighted representation. We lose the exact temporal position of
+each call and repeated transition counts: two traces can induce the same unweighted graph even if
+they execute transitions in different orders or with different frequencies.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccccc}
+\hline
+\textbf{Split} & \textbf{Samples} & \textbf{Avg. nodes} & \textbf{Avg. edges} &
+\textbf{Avg. loops} & \textbf{Max nodes} & \textbf{Max edges} \\
+\hline
+Train & 16325 & 21.947 & 39.643 & 0.000 & 41 & 72 \\
+Test  & 6505  & 24.279 & 45.104 & 0.000 & 45 & 76 \\
+\hline
+\end{tabular}
+\caption{Statistics of the transition graphs induced by train and test API sequences.}
+\label{tab:task4_graph_stats}
+\end{table}
+
+\begin{questionbox}
+\textbf{Q4.} Train and tune variations of GNNs considering different message and aggregation
+functions and architectures: Simple GCN, GraphSAGE, and GAT. How does each model perform with
+respect to the previous architectures? Can you beat the baseline?
+\end{questionbox}
+
+We trained three graph models: a simple GCN, GraphSAGE, and GAT. API IDs are mapped to learnable node
+embeddings, then processed with message-passing layers. Hyperparameters were selected with Optuna on
+a stratified validation split from the training set, optimizing macro F1. The search space is
+reported in Table~\ref{tab:task4_optuna_space}.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{llll}
+\hline
+\textbf{Hyperparameter} & \textbf{Search space} & \textbf{Scale/type} & \textbf{Models} \\
+\hline
+\texttt{embedding\_dim} & \{16, 32, 64\} & Categorical & All \\
+\texttt{hidden\_dim} & \{64, 128, 256\} & Categorical & All \\
+\texttt{num\_layers} & \{2, 3\} & Categorical & All \\
+\texttt{dropout} & $[0, 0.5]$ & Uniform & All \\
+\texttt{batch\_size} & \{64, 128, 256\} & Categorical & All \\
+\texttt{lr} & $[10^{-5}, 3 \cdot 10^{-3}]$ & Log-uniform & All \\
+\texttt{weight\_decay} & $[10^{-6}, 10^{-2}]$ & Log-uniform & All \\
+\texttt{aggregation} & \{\texttt{mean}, \texttt{max}\} & Categorical & GraphSAGE \\
+\texttt{heads} & \{2, 4\} & Categorical & GAT \\
+\hline
+\end{tabular}
+\caption{Optuna search space for the GNN models.}
+\label{tab:task4_optuna_space}
+\end{table}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccccccc}
+\hline
+\textbf{Model} & \textbf{Emb.} & \textbf{Hidden} & \textbf{Layers} & \textbf{Dropout} &
+\textbf{LR} & \textbf{Weight decay} & \textbf{Batch} & \textbf{Extra} \\
+\hline
+GCN       & 32 & 64  & 3 & 0.3006 & 0.000568 & 0.000001 & 64  & -- \\
+GraphSAGE & 32 & 256 & 2 & 0.0028 & 0.001047 & 0.000672 & 128 & mean \\
+GAT       & 32 & 256 & 2 & 0.0028 & 0.001047 & 0.000672 & 128 & 2 heads \\
+\hline
+\end{tabular}
+\caption{Best hyperparameters found for the three GNN variants.}
+\label{tab:task4_best_hyperparameters}
+\end{table}
+
+\begin{figure}[h!]
+\centering
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-4/gcn_training_curve.pdf}
+\end{minipage}
+\hfill
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-4/sage_training_curve.pdf}
+\end{minipage}
+\hfill
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-4/gat_training_curve.pdf}
+\end{minipage}
+\caption{Validation macro F1 curves for GCN (left), GraphSAGE (center), and GAT (right).}
+\label{fig:task4_training_curves}
+\end{figure}
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/task-4/loss_curves.pdf}
+\caption{Training and validation loss curves for the three GNN variants.}
+\label{fig:task4_loss_curves}
+\end{figure}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccccc}
+\hline
+\textbf{Model} & \textbf{Best val F1} & \textbf{Accuracy} & \textbf{Balanced acc.} &
+\textbf{Macro F1} & \textbf{F1 Goodware} & \textbf{F1 Malware} \\
+\hline
+GCN       & 0.7384 & 0.9491 & 0.8094 & 0.7324 & 0.4916 & 0.9732 \\
+GraphSAGE & 0.8244 & 0.9702 & 0.8302 & 0.8071 & 0.6298 & 0.9845 \\
+GAT       & 0.8253 & 0.9736 & 0.7667 & 0.7959 & 0.6055 & 0.9863 \\
+\hline
+\end{tabular}
+\caption{Final test performance of the three GNN variants.}
+\label{tab:task4_test_performance}
+\end{table}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccc}
+\hline
+\textbf{Model/Class} & \textbf{Precision} & \textbf{Recall} & \textbf{F1-score} & \textbf{Support} \\
+\hline
+GCN Goodware (0)       & 0.3922 & 0.6584 & 0.4916 & 243 \\
+GCN Malware (1)        & 0.9864 & 0.9604 & 0.9732 & 6262 \\
+GraphSAGE Goodware (0) & 0.5872 & 0.6790 & 0.6298 & 243 \\
+GraphSAGE Malware (1)  & 0.9875 & 0.9815 & 0.9845 & 6262 \\
+GAT Goodware (0)       & 0.6839 & 0.5432 & 0.6055 & 243 \\
+GAT Malware (1)        & 0.9824 & 0.9903 & 0.9863 & 6262 \\
+\hline
+\end{tabular}
+\caption{Per-class classification report for the GNN variants.}
+\label{tab:task4_classification_report}
+\end{table}
+
+\begin{figure}[h!]
+\centering
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-4/gcn_confusion_matrix.pdf}
+\end{minipage}
+\hfill
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-4/sage_confusion_matrix.pdf}
+\end{minipage}
+\hfill
+\begin{minipage}{0.32\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-4/gat_confusion_matrix.pdf}
+\end{minipage}
+\caption{Confusion matrices for GCN (left), GraphSAGE (center), and GAT (right).}
+\label{fig:task4_confusion_matrices}
+\end{figure}
+
+All GNN variants beat the frequency-based Logistic Regression baseline in macro F1. The best GNN was
+GraphSAGE, with macro F1 0.8071 and goodware F1 0.6298. GAT achieved the highest accuracy and malware
+F1, but its lower goodware recall reduced balanced accuracy and macro F1. GCN was the weakest GNN,
+although it still improved over the baseline macro F1.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccc}
+\hline
+\textbf{Model} & \textbf{Accuracy} & \textbf{Balanced acc.} & \textbf{Macro F1} & \textbf{Goodware F1} \\
+\hline
+Logistic Regression baseline & 0.9688 & 0.6654 & 0.7154 & 0.4469 \\
+Best FFNN: Embedding FFNN    & 0.9356 & 0.5789 & 0.5749 & 0.1832 \\
+Best RNN: BiLSTM             & 0.9748 & 0.8663 & 0.8381 & 0.6894 \\
+Best GNN: GraphSAGE          & 0.9702 & 0.8302 & 0.8071 & 0.6298 \\
+\hline
+\end{tabular}
+\caption{Comparison between the best GNN and the previous architectures on the test set.}
+\label{tab:task4_architecture_comparison}
+\end{table}
+
+Compared with the previous architectures, GraphSAGE is much better than the FFNN models and better
+than the Logistic Regression baseline, but it does not beat the best RNN. The BiLSTM remains the best
+overall model in macro F1 and goodware F1, suggesting that the exact temporal order still carries
+useful information that is partly lost when the sequence is collapsed into an unweighted transition
+graph.
