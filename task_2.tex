@@ -1,0 +1,210 @@
+\section{Task 2: Feed Forward Neural Network}
+
+\begin{questionbox}
+\textbf{Q1.} Do you have the same number of API calls for each sequence? If not, is the distribution
+of the number of API calls per sequence in the training set the same as the test one?
+\end{questionbox}
+
+No. The API sequences do not all have the same length. In the training set, sequence lengths range
+from 60 to 90 API calls, with mean 75.031 and median 75. In the test set, lengths range from 70 to
+100, with mean 86.331 and median 87. Therefore, the test distribution is shifted toward longer
+sequences.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccccccc}
+\hline
+\textbf{Split} & \textbf{Samples} & \textbf{Min} & \textbf{P25} & \textbf{Median} & \textbf{Mean} & \textbf{P75} & \textbf{P95} & \textbf{Max} \\
+\hline
+Train & 16325 & 60 & 67.0 & 75.0 & 75.031 & 83.0 & 89.0 & 90 \\
+Test  & 6505  & 70 & 79.0 & 87.0 & 86.331 & 94.0 & 99.0 & 100 \\
+\hline
+\end{tabular}
+\caption{Sequence length statistics for train and test partitions.}
+\label{tab:task2_sequence_lengths}
+\end{table}
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.70\textwidth]{figures/task-2/sequence_lengths.pdf}
+\caption{Distribution of API sequence lengths in train and test.}
+\label{fig:task2_sequence_lengths}
+\end{figure}
+
+\begin{questionbox}
+\textbf{Q2.} Can a FFNN handle a variable number of elements? If not, why?
+\end{questionbox}
+
+No. A standard FFNN expects each sample to be represented by a fixed-size input vector. Since the
+first linear layer has a fixed number of input units, all sequences must be converted to the same
+length before being passed to the network.
+
+\begin{questionbox}
+\textbf{Q3.} How to estimate a fixed-size candidate? What partition do you use to estimate it?
+\end{questionbox}
+
+The fixed length was estimated using only the training partition, to avoid using test information in
+preprocessing. We chose the maximum training sequence length, which is 90 API calls. This keeps all
+training sequences intact.
+
+\begin{questionbox}
+\textbf{Q4.} Given the estimate of the previous point, what technique could you use to obtain the
+same number of API calls per sequence?
+\end{questionbox}
+
+We used padding and truncation. Sequences shorter than 90 API calls are padded with the special token
+\texttt{<PAD>} mapped to ID 0. API calls not present in the training vocabulary are mapped to
+\texttt{<UNK>}. The vocabulary contains 260 IDs in total: 258 API calls plus \texttt{<PAD>} and
+\texttt{<UNK>}.
+
+\begin{questionbox}
+\textbf{Q5.} Suppose that at test time you have more API calls than the fixed-size you estimated.
+What do you do with the API calls exceeding such fixed-size?
+\end{questionbox}
+
+Test sequences longer than 90 API calls are truncated. In the test set, 2,639 sequences were longer
+than the fixed size, for a total of 14,601 truncated API calls. There were also 3 unknown API calls,
+corresponding to the API calls that appear only in the test vocabulary.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lccccc}
+\hline
+\textbf{Split} & \textbf{Samples} & \textbf{Fixed length} & \textbf{Vocab size} &
+\textbf{Truncated seq.} & \textbf{Unknown calls} \\
+\hline
+Train & 16325 & 90 & 260 & 0    & 0 \\
+Test  & 6505  & 90 & 260 & 2639 & 3 \\
+\hline
+\end{tabular}
+\caption{Padding, truncation, and unknown-token statistics.}
+\label{tab:task2_preprocessing}
+\end{table}
+
+The API calls are categorical strings, so we tested two numerical representations:
+
+\begin{itemize}
+    \item \textbf{Sequential identifiers}: each API call is mapped to a fixed arbitrary ID. The padded
+    ID vector is normalized and used directly as the FFNN input.
+    \item \textbf{Learnable embeddings}: each API ID is mapped to a dense vector learned during
+    training; the concatenated embeddings are passed to the FFNN.
+\end{itemize}
+
+\begin{questionbox}
+\textbf{Q6.} Use a FFNN in both cases. Report how you selected the hyperparameters of your final
+model, and justify your choices.
+\end{questionbox}
+
+For both FFNN variants, we used Optuna on a stratified validation split from the training set. The
+objective was macro F1, because the dataset is strongly imbalanced toward malware. The search space
+is reported in Table~\ref{tab:task2_optuna_space}. Both models used weighted cross-entropy to reduce
+the effect of class imbalance and early stopping based on validation macro F1.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{llll}
+\hline
+\textbf{Hyperparameter} & \textbf{Search space} & \textbf{Scale/type} & \textbf{Models} \\
+\hline
+\texttt{hidden\_dim} & \{64, 128, 256\} & Categorical & Both \\
+\texttt{dropout} & $[0, 0.5]$ & Uniform & Both \\
+\texttt{batch\_size} & \{128, 256, 512\} & Categorical & Both \\
+\texttt{lr} & $[10^{-4}, 3 \cdot 10^{-3}]$ & Log-uniform & Both \\
+\texttt{weight\_decay} & $[10^{-6}, 10^{-2}]$ & Log-uniform & Both \\
+\texttt{embedding\_dim} & \{8, 16, 32\} & Categorical & Embedding only \\
+\hline
+\end{tabular}
+\caption{Optuna search space for the FFNN models.}
+\label{tab:task2_optuna_space}
+\end{table}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccccc}
+\hline
+\textbf{Model} & \textbf{Hidden} & \textbf{Dropout} & \textbf{LR} & \textbf{Weight decay} &
+\textbf{Batch} & \textbf{Emb. dim} \\
+\hline
+Sequential-ID FFNN & 256 & 0.0697 & 0.000270 & 0.000029 & 256 & -- \\
+Embedding FFNN     & 256 & 0.0806 & 0.002362 & 0.001708 & 256 & 16 \\
+\hline
+\end{tabular}
+\caption{Best hyperparameters selected with Optuna for the two FFNN variants.}
+\label{tab:task2_hyperparameters}
+\end{table}
+
+\begin{figure}[h!]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-2/ids_training_curve.pdf}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-2/embedding_training_curve.pdf}
+\end{minipage}
+\caption{Validation macro F1 curves for the Sequential-ID FFNN (left) and the Embedding FFNN (right).}
+\label{fig:task2_training_curves}
+\end{figure}
+
+The best validation macro F1 was 0.5403 for the Sequential-ID FFNN and 0.6838 for the Embedding
+FFNN. On the test set, the embedding model also performed better overall.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lccccc}
+\hline
+\textbf{Model} & \textbf{Accuracy} & \textbf{Balanced acc.} & \textbf{Macro F1} &
+\textbf{F1 Goodware} & \textbf{F1 Malware} \\
+\hline
+Sequential-ID FFNN & 0.9397 & 0.5138 & 0.5155 & 0.0622 & 0.9689 \\
+Embedding FFNN     & 0.9356 & 0.5789 & 0.5749 & 0.1832 & 0.9665 \\
+\hline
+\end{tabular}
+\caption{Final test performance of the two FFNN variants.}
+\label{tab:task2_test_performance}
+\end{table}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcccc}
+\hline
+\textbf{Model/Class} & \textbf{Precision} & \textbf{Recall} & \textbf{F1-score} & \textbf{Support} \\
+\hline
+Seq-ID Goodware (0) & 0.0743 & 0.0535 & 0.0622 & 243 \\
+Seq-ID Malware (1)  & 0.9637 & 0.9741 & 0.9689 & 6262 \\
+Emb. Goodware (0)   & 0.1741 & 0.1934 & 0.1832 & 243 \\
+Emb. Malware (1)    & 0.9686 & 0.9644 & 0.9665 & 6262 \\
+\hline
+\end{tabular}
+\caption{Per-class classification report for the two FFNN variants.}
+\label{tab:task2_classification_report}
+\end{table}
+
+\begin{figure}[h!]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-2/ids_confusion_matrix.pdf}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/task-2/embedding_confusion_matrix.pdf}
+\end{minipage}
+\caption{Confusion matrices for the Sequential-ID FFNN (left) and the Embedding FFNN (right).}
+\label{fig:task2_confusion_matrices}
+\end{figure}
+
+\begin{questionbox}
+\textbf{Q7.} Can you obtain the same results for the two alternatives (sequential identifiers and
+learnable embeddings)? If not, why?
+\end{questionbox}
+
+No. The embedding-based FFNN achieved better macro F1, balanced accuracy, and goodware F1.
+Sequential IDs are arbitrary categorical labels, but when used directly as numeric inputs the network
+can interpret their magnitude as meaningful even though ID order has no semantic meaning. Learnable
+embeddings are more appropriate because the model can learn a dense representation for each API call.
+Even so, both FFNNs still struggle on the minority goodware class and both are worse than the
+frequency-based Logistic Regression baseline in macro F1.
