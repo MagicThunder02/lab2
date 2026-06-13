@@ -171,15 +171,21 @@ BiLSTM Malware (1)      & 0.9903 & 0.9622 & 0.9760 & 6262 \\
 
 The best overall model was the bidirectional LSTM, with macro F1 0.7651 and goodware F1 0.5542.
 The simple RNN was close in macro F1, while the bidirectional RNN had higher goodware recall but many
-more false positives, which reduced its accuracy and macro F1.
+more false positives, which reduced its accuracy and macro F1. Qualitatively, this means that the
+BiRNN was more aggressive in predicting the minority goodware class, whereas the Simple RNN and
+BiLSTM kept a better balance between detecting goodware and preserving malware accuracy.
 
 \begin{questionbox}
 \textbf{Q6.} Is the RNNs training as stable as the FFNN's one?
 \end{questionbox}
 
-No. RNN training was less stable than FFNN training. Validation macro F1 fluctuated across epochs,
-especially for the simple RNN and BiRNN. To improve stability, we used small learning rates, gradient
-clipping, class-weighted loss, validation monitoring, and early stopping.
+No. RNN training is generally less stable than FFNN training because recurrent models propagate
+information through many sequential steps, making optimization more sensitive to gradients and
+learning-rate choices. To analyze this properly, we compare training loss and validation loss over the
+final training epochs: lower loss is better, and a large gap where training loss keeps decreasing
+while validation loss increases would indicate overfitting. We also monitor validation macro F1,
+because it is the model-selection metric and is more informative than accuracy on this imbalanced
+dataset.
 
 \begin{questionbox}
 \textbf{Q7.} How does your model's performance compare to the simple frequency baseline, given that
@@ -190,7 +196,9 @@ The best RNN model, the bidirectional LSTM, slightly outperformed the frequency-
 Regression baseline in macro F1 and goodware F1. Logistic Regression obtained macro F1 0.7154 and
 goodware F1 0.4469, while the BiLSTM obtained macro F1 0.7651 and goodware F1 0.5542. This suggests
 that modeling the API order can help the minority class. However, the improvement is moderate given
-the much higher model complexity and training cost.
+the much higher model complexity and training cost. The frequency baseline remains very competitive,
+which suggests that API-call frequencies already capture a large part of the malware/goodware signal
+in this dataset.
 
 \begin{table}[h!]
 \centering
